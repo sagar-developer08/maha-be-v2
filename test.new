@@ -1,0 +1,220 @@
+exports.createBooking = async (req, res) => {
+  try {
+    const {
+      userId,
+      slotId,
+      subTotal,
+      tourId,
+      shipping,
+      booked_by: initialBookedBy,
+      refernce_id,
+      slot_count,
+      slot_child,
+      slot_adult,
+      referral_code,
+      bookingfrom: initialBookingFrom,
+      ...bookingDetails
+    } = req.body;
+
+    const tour = await Tour.findOne({
+      where: { id: tourId },
+    });
+    if (!tour) {
+      return res.status(404).json({ error: "Tour not found for this slot" });
+    }
+
+    const adultPrice = tour.price_adult || 0;
+    const childPrice = tour.price_child || 0;
+    let finalSubTotal = (slot_adult * adultPrice) + (slot_child * childPrice);
+
+    let booked_by = initialBookedBy || null;
+    let bookingfrom = initialBookingFrom || null;
+
+    // Handle referral code logic
+    if (referral_code) {
+      const referredUser = await User.findOne({ where: { referral_code } });
+      if (referredUser) {
+        booked_by = referredUser.id;
+        bookingfrom = referredUser.role;
+        if (
+          referredUser.role === "B2B-Influencer" ||
+          referredUser.role === "B2B-Individual"
+        ) {
+          finalSubTotal = subTotal * 0.9;
+        }
+      }
+    }
+
+    // Check if booked_by exists and apply discount logic
+    if (booked_by) {
+      const getbookeyData = await User.findByPk(booked_by);
+      bookingfrom = getbookeyData.role;
+      if (
+        getbookeyData &&
+        (getbookeyData.role === "B2B-Influencer" || getbookeyData.role === "B2B-Individual")
+      ) {
+        finalSubTotal = subTotal * 0.9;
+      }
+    }
+
+    // Retrieve passengers
+    const passengers = await Passenger.findAll({
+      where: { refernce_id },
+    });
+    if (!passengers || passengers.length === 0) {
+      return res.status(404).json({ error: "No passengers found for the given reference ID" });
+    }
+
+    // Retrieve pickup details
+    const pickupDetails = await Pickup.findAll({
+      where: { refernce_id },
+    });
+    if (!pickupDetails || pickupDetails.length === 0) {
+      return res.status(404).json({ error: "No pickup details found for the given reference ID" });
+    }
+
+    const pickup = pickupDetails[0];
+    const slot = await Slot.findByPk(slotId);
+    if (!slot) {
+      return res.status(404).json({ error: "Slot not found" });
+    }
+
+    const availableSlots = slot.totalSlots - slot.bookedSlots;
+    if (passengers.length > availableSlots) {
+      return res.status(400).json({ error: "Not enough available slots for this booking" });
+    }
+
+    // Apply weight-based price modification
+    let modifiedSubTotal = finalSubTotal;
+    for (const passenger of passengers) {
+      console.log(passenger, "passenger weight");
+      if (passenger.weight > 120) {
+        console.log(passenger)
+        // Double the price for passengers weighing more than 120kg
+        if (passenger.type === "adult") {
+          modifiedSubTotal += adultPrice * 1; // Add the additional amount for overweight adult passengers
+        } else if (passenger.type === "child") {
+          modifiedSubTotal += childPrice * 1; // Add the additional amount for overweight child passengers
+        }
+      }
+    }
+
+    // Create booking record
+    const booking = await Booking.create({
+      slotId,
+      userId,
+      subTotal: modifiedSubTotal,
+      refernce_id,
+      tourId: tourId,
+      booked_by,
+      status: "pending",
+      slot_conformation: "pending",
+      booking_date: slot.date,
+      ...bookingDetails,
+      slot_count: slot_count,
+      referral_code,
+      slot_child,
+      slot_adult,
+      bookingfrom,
+    });
+
+    // Assign passengers to booking
+    for (const passenger of passengers) {
+      passenger.bookingId = booking.id;
+      await passenger.save();
+    }
+
+    // Handle cart payload and external API calls
+    const items = [];
+    if (slot_adult > 0) {
+      items.push({
+        title: `${tour.title} - Adult`,
+        description: tour.short_detail,
+        price: adultPrice,
+        sku: "balloon_ride_adult",
+        productId: booking.id,
+        quantity: slot_adult,
+        image: tour.package_image,
+        variantOptions: ["Adult", `Duration: ${tour.duration}`],
+      });
+    }
+    if (slot_child > 0) {
+      items.push({
+        title: `${tour.title} - Child`,
+        description: tour.short_detail,
+        price: childPrice,
+        sku: "balloon_ride_child",
+        productId: booking.id,
+        quantity: slot_child,
+        image: tour.package_image,
+        variantOptions: ["Child", `Duration: ${tour.duration}`],
+      });
+    }
+
+    const cartPayload = {
+      cartObject: {
+        store: {
+          name: "MAHABalloons",
+          url: "https://mahaballoonadventures.ae",
+          logo: "https://d3gelo9cifr8ed.cloudfront.net/assets/mahaNav.png",
+          platformUuid: "713fcbdd-a27d-44c2-9916-68e1be7956ed",
+        },
+        cart: {
+          subTotal: modifiedSubTotal,
+          shipping: shipping,
+          currency: "AED",
+          country: "UAE",
+          items,
+          extra: {
+            bookingId: booking.id,
+            slotId: slotId,
+            tourId: tourId,
+            ...bookingDetails,
+          },
+        },
+      },
+    };
+
+    const cartResponse = await axios.post("https://dev-api.strabl.com/v2/public/api/cart/", cartPayload);
+
+    if (cartResponse.status === 200 || cartResponse.status === 201) {
+      const zohoData = {
+        data: passengers,
+        number: passengers.length,
+        shippingAddress: pickup,
+        slotId: slot.dataValues,
+        cartDetails: cartResponse.data.data.cartId,
+        bookingDetails: booking,
+      };
+
+      const zohoResponse = await axios.post(
+        `https://www.zohoapis.com/crm/v2/functions/bookings/actions/execute?auth_type=apikey&zapikey=1003.98e95256671e37e14a695ea60fbdce04.9f0168e5de5e8c3fc475d1b92243c893`,
+        zohoData,
+        {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      return res.status(201).json({
+        booking,
+        cart: cartResponse.data,
+        zohoResponse: {
+          ...zohoResponse.data,
+          total_number: passengers.length,
+          data: passengers,
+          shippingAddress: pickupDetails,
+          subTotal: modifiedSubTotal,
+          referral_code,
+          slotId: slot.dataValues,
+        },
+      });
+    } else {
+      return res.status(500).json({ error: "Failed to create cart" });
+    }
+  } catch (error) {
+    console.log(error);
+    res.status(400).json({ error: error.message });
+  }
+};

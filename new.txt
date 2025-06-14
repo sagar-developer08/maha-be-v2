@@ -1,0 +1,275 @@
+exports.createBooking = async (req, res) => {
+  try {
+    const {
+      userId,
+      slotId,
+      subTotal,
+      tourId,
+      shipping,
+      booked_by: initialBookedBy,
+      refernce_id,
+      slot_count,
+      slot_child,
+      slot_adult,
+      referral_code,
+      bookingfrom: initialBookingFrom,
+      ...bookingDetails
+    } = req.body;
+
+    // let finalSubTotal = subTotal;
+    // 
+    const tour = await Tour.findOne({
+      where: { id:tourId  }, // Assuming slot has packageId that relates to Tour
+    });
+    console.log(tour, "---tour");
+    if (!tour) {
+      return res.status(404).json({ error: "Tour not found for this slot" });
+    }
+    //
+
+    const adultPrice = tour.price_adult || 0;
+    const childPrice = tour.price_child || 0;
+    let finalSubTotal = (slot_adult * adultPrice) + (slot_child * childPrice);
+    // 
+    let booked_by = initialBookedBy || null;
+    let bookingfrom = initialBookingFrom || null;
+
+    // let booked_by = null; // Default to null if no referral code is provided
+
+   // If referral_code is provided, check if referred user is a B2B-Influencer
+    if (referral_code) {
+      const referredUser = await User.findOne({ where: { referral_code } });
+      if (referredUser) {
+        console.log("Referred user found:", referredUser);
+        booked_by = referredUser.id
+        bookingfrom = referredUser.role
+
+        console.log(booked_by, "booked_by",bookingfrom,"bookingfrom");
+        // If the referred user is a B2B-Influencer or B2B-Individual, apply the discount
+        if (
+          referredUser.role === "B2B-Influencer" ||
+          referredUser.role === "B2B-Individual"
+        ) {
+          finalSubTotal = subTotal * 0.9; // Apply a 10% discount
+          console.log("10% discount applied due to referral by B2B-Influencer");
+        }
+      } else {
+        console.log("Invalid referral code or user not found.");
+      }
+    }
+    // Check if booked_by exists (if not, handle accordingly)
+    if (booked_by ) {
+      const getbookeyData = await User.findByPk(booked_by);
+      console.log( getbookeyData.role ,getbookeyData, 'No role data', "--booking data");
+      bookingfrom = getbookeyData.role;
+      // Apply 10% discount if booked_by user is B2B-Influencer or B2B-Individual
+      if (
+        getbookeyData && 
+        (getbookeyData.role === "B2B-Influencer" || getbookeyData.role === "B2B-Individual")
+      ) {
+        finalSubTotal = subTotal * 0.9; // Apply 10% discount
+       
+        console.log(bookingfrom,'---inside bookingfrom');
+        console.log("10% discount applied due to B2B-Influencer or B2B-Individual role of booked_by");
+      }
+    } else {
+      console.log("No booked_by provided, skipping discount logic for this user");
+    }
+
+    console.log(finalSubTotal, "finalSubtotal after referral or booked_by discount");
+    // const shipping = "DubaiUAE";
+    const passengers = await Passenger.findAll({
+      where: { refernce_id },
+    });
+    // console.log(passengers,'---pass')
+    if (!passengers || passengers.length === 0) {
+      return res
+        .status(404)
+        .json({ error: "No passengers found for the given reference ID" });
+    }
+    //
+    const pickupDetails = await Pickup.findAll({
+      where: {
+        refernce_id: refernce_id, // Use the correct reference_id
+      },
+    });
+    // If pickup details are not found, handle accordingly
+    if (!pickupDetails || pickupDetails.length === 0) {
+      return res
+        .status(404)
+        .json({ error: "No pickup details found for the given reference ID" });
+    }
+
+    // Get the first pickup entry, assuming you only need one
+    const pickup = pickupDetails;
+    console.log(pickup[0], "--pickup");
+
+    //
+    const slot = await Slot.findByPk(slotId);
+    // console.log("------",slot,'--slot')
+    if (!slot) {
+      return res.status(404).json({ error: "Slot not found" });
+    }
+    //
+    
+
+    // 
+    const availableSlots = slot.totalSlots - slot.bookedSlots; // Calculate available slots
+    console.log(availableSlots, slot.totalSlots, slot.bookedSlots, "--av");
+    if (passengers.length > availableSlots) {
+      return res
+        .status(400)
+        .json({ error: "Not enough available slots for this booking" });
+    }
+
+    // const tourData = tour.dataValues;
+
+    const booking = await Booking.create({
+      slotId,
+      userId,
+      subTotal: finalSubTotal,
+      refernce_id,
+      tourId: tourId,
+      booked_by,
+      status: "pending",
+      slot_conformation: "pending",
+      booking_date: slot.date, // Pass the slot date to booking_date
+      ...bookingDetails,
+      slot_count: slot_count,
+      referral_code,
+      slot_child,
+      slot_adult,
+      bookingfrom,
+    });
+    console.log(booking, "--booking");
+
+    //
+    for (const passenger of passengers) {
+      passenger.bookingId = booking.id;
+      await passenger.save();
+    }
+    // console.log(slot, "---slot");
+    // slot.bookedSlots += passengers.length; // Increase booked slots by number of passengers
+    // // slot.totalSlots -= passengers.length;
+    // await slot.save();
+
+    // console.log("Current booked slots:", slot.bookedSlots);
+    // console.log("Current total slots:", slot.totalSlots);
+    // console.log("Number of passengers:", passengers.length);
+    //
+    const items = [];
+    if (slot_adult > 0) {
+      items.push({
+        title: `${tour.title} - Adult`,
+        description: tour.short_detail,
+        price: adultPrice,
+        sku: "balloon_ride_adult",
+        productId: booking.id,
+        quantity: slot_adult,
+        image: tour.package_image,
+        variantOptions: ["Adult", `Duration: ${tour.duration}`],
+      });
+    }
+    if (slot_child > 0) {
+      items.push({
+        title: `${tour.title} - Child`,
+        description: tour.short_detail,
+        price: childPrice,
+        sku: "balloon_ride_child",
+        productId: booking.id,
+        quantity: slot_child,
+        image: tour.package_image,
+        variantOptions: ["Child", `Duration: ${tour.duration}`],
+      });
+    }
+    // 
+    const title = tour.dataValues.title;
+    const short_detail = tour.dataValues.short_detail;
+    const package_image = tour.dataValues.package_image;
+
+    console.log(title,short_detail,package_image,'---tour2')
+    const cartPayload = {
+      cartObject: {
+        store: {
+          name: "MAHABalloons",
+          url: "https://mahaballoonadventures.ae",
+          logo: "https://d3gelo9cifr8ed.cloudfront.net/assets/mahaNav.png",
+          // platformUuid: "bbbbeb92-5254-4b5e-abe5-68572ed17453",
+          platformUuid: "713fcbdd-a27d-44c2-9916-68e1be7956ed",
+        },
+        cart: {
+          // total: subTotal ,
+          subTotal: finalSubTotal, // from booking body
+          shipping: shipping, // from booking body
+          currency: "AED",
+          country: "UAE",
+          items, // Assuming items array is passed from body
+          extra: {
+            bookingId: booking.id,
+            slotId: slotId,
+            tourId: tourId,
+            // Storing booking ID as part of extra metadata
+            ...bookingDetails, // If you have any extra data
+          },
+        },
+      },
+    };
+
+    const cartResponse = await axios.post(
+      // "https://api.strabl.com/v2/public/api/cart/",
+      "https://dev-api.strabl.com/v2/public/api/cart/",
+      cartPayload
+    );
+    console.log("Cart response:", cartResponse.data.data.cartId);
+
+    if (cartResponse.status === 200 || cartResponse.status === 201) {
+      // Cart created successfully, decrement slots
+      // slot.bookedSlots += passengers.length;
+      // slot.totalSlots -= passengers.length;
+      // await slot.save();
+
+      const zohoData = {
+        // Include Zoho response details
+        data: passengers,
+        number: passengers.length, // Include passengers details
+        shippingAddress: pickup[0], // Include pickup details
+        slotId: slot.dataValues, // Include slot data values
+        cartDetails: cartResponse.data.data.cartId, // Include cart details
+        bookingDetails: booking, // Include booking details
+      };
+      // zoho
+      const zohoResponse = await axios.post(
+        `https://www.zohoapis.com/crm/v2/functions/bookings/actions/execute?auth_type=apikey&zapikey=1003.98e95256671e37e14a695ea60fbdce04.9f0168e5de5e8c3fc475d1b92243c893`,
+        zohoData,
+        {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+      console.log(passengers, "passengers");
+      // passengers.bookingId = booking.id;
+      // await passengers.save();
+      return res.status(201).json({
+        booking,
+        cart: cartResponse.data, // Return cart details along with booking
+        zohoResponse: {
+          ...zohoResponse.data,
+          total_number: passengers.length, // Include zohoResponse details
+          data: passengers,
+          shippingadress: pickupDetails,
+          subTotal: finalSubTotal,
+          referral_code,
+          // Send entire user data in the response
+          slotId: slot.dataValues, // Send slotId in the response
+        },
+      });
+    } else {
+      // If cart creation fails, send an error response
+      return res.status(500).json({ error: "Failed to create cart" });
+    }
+  } catch (error) {
+    console.log(error);
+    res.status(400).json({ error: error.message });
+  }
+};
