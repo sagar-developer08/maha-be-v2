@@ -51,8 +51,8 @@ function generateSlug(title) {
 function ensureBlogDataStructure(blog) {
     return {
         ...blog.toJSON(),
-        categories: Array.isArray(blog.categories) ? blog.categories : [],
-        tags: Array.isArray(blog.tags) ? blog.tags : [],
+        categories: blog.categories || "",
+        tags: blog.tags || "",
         status: blog.status || 'draft',
         featured: blog.featured || false,
         excerpt: blog.excerpt || { en: '', ar: '' },
@@ -79,36 +79,36 @@ const blogController = {
                 const fileType = req.file.mimetype;
                 imageUrl = await uploadFileToS3(fileBuffer, fileName, fileType);
             }
-            
+
             // Parse JSON fields for en/ar support
             const title = parseJsonField(req.body.title);
             const content = parseJsonField(req.body.content);
             const excerpt = parseJsonField(req.body.excerpt);
             const written_by = parseJsonField(req.body.written_by);
-            
+
             // Handle categories and tags
             let categories = req.body.categories || [];
             if (typeof categories === 'string') {
                 categories = JSON.parse(categories);
             }
-            
+
             let tags = req.body.tags || [];
             if (typeof tags === 'string') {
                 tags = JSON.parse(tags);
             }
-            
+
             // Handle SEO data
             let seo = req.body.seo || {};
             if (typeof seo === 'string') {
                 seo = JSON.parse(seo);
             }
-            
+
             // Generate slug if not provided
             let slug = req.body.slug || seo.slug;
             if (!slug && title.en) {
                 slug = generateSlug(title.en);
             }
-            
+
             // Ensure SEO object has proper structure
             const seoData = {
                 metaTitle: parseJsonField(seo.metaTitle),
@@ -135,7 +135,7 @@ const blogController = {
                 format: req.body.format || 'standard',
                 seo: seoData
             });
-            
+
             res.status(201).json(ensureBlogDataStructure(blog));
         } catch (error) {
             console.error('Create blog error:', error);
@@ -148,10 +148,10 @@ const blogController = {
             const blogs = await Blog.findAll({
                 order: [['createdAt', 'DESC']]
             });
-            
+
             // Ensure proper data structure for all blogs
             const formattedBlogs = blogs.map(blog => ensureBlogDataStructure(blog));
-            
+
             res.status(200).json(formattedBlogs);
         } catch (error) {
             console.error('Get all blogs error:', error);
@@ -165,7 +165,7 @@ const blogController = {
                 where: { status: 'published' },
                 order: [['createdAt', 'DESC']]
             });
-            
+
             const formattedBlogs = blogs.map(blog => ensureBlogDataStructure(blog));
             res.status(200).json(formattedBlogs);
         } catch (error) {
@@ -178,16 +178,16 @@ const blogController = {
         try {
             const { status } = req.params;
             const validStatuses = ['draft', 'published', 'archived'];
-            
+
             if (!validStatuses.includes(status)) {
                 return res.status(400).json({ error: 'Invalid status. Must be: draft, published, or archived' });
             }
-            
+
             const blogs = await Blog.findAll({
                 where: { status },
                 order: [['createdAt', 'DESC']]
             });
-            
+
             const formattedBlogs = blogs.map(blog => ensureBlogDataStructure(blog));
             res.status(200).json(formattedBlogs);
         } catch (error) {
@@ -200,11 +200,11 @@ const blogController = {
         try {
             const { categoryId } = req.params;
             const categoryIdInt = parseInt(categoryId);
-            
+
             if (isNaN(categoryIdInt)) {
                 return res.status(400).json({ error: 'Invalid category ID' });
             }
-            
+
             const blogs = await Blog.findAll({
                 where: {
                     categories: {
@@ -213,7 +213,7 @@ const blogController = {
                 },
                 order: [['createdAt', 'DESC']]
             });
-            
+
             const formattedBlogs = blogs.map(blog => ensureBlogDataStructure(blog));
             res.status(200).json(formattedBlogs);
         } catch (error) {
@@ -226,7 +226,7 @@ const blogController = {
         try {
             const blog = await Blog.findByPk(req.params.id);
             if (!blog) return res.status(404).json({ error: 'Blog not found' });
-            
+
             res.status(200).json(ensureBlogDataStructure(blog));
         } catch (error) {
             console.error('Get blog by ID error:', error);
@@ -256,10 +256,10 @@ const blogController = {
             });
 
             const formattedRelatedBlogs = relatedBlogs.map(blog => ensureBlogDataStructure(blog));
-            
-            res.status(200).json({ 
-                blog: ensureBlogDataStructure(blog), 
-                relatedBlogs: formattedRelatedBlogs 
+
+            res.status(200).json({
+                blog: ensureBlogDataStructure(blog),
+                relatedBlogs: formattedRelatedBlogs
             });
         } catch (error) {
             console.error('Get blog by slug error:', error);
@@ -280,36 +280,36 @@ const blogController = {
                 const fileType = req.file.mimetype;
                 imageUrl = await uploadFileToS3(fileBuffer, fileName, fileType);
             }
-            
+
             // Parse JSON fields for en/ar support
             const title = parseJsonField(req.body.title);
             const content = parseJsonField(req.body.content);
             const excerpt = parseJsonField(req.body.excerpt);
             const written_by = parseJsonField(req.body.written_by);
-            
+
             // Handle categories and tags
             let categories = req.body.categories || blog.categories;
             if (typeof categories === 'string') {
                 categories = JSON.parse(categories);
             }
-            
+
             let tags = req.body.tags || blog.tags;
             if (typeof tags === 'string') {
                 tags = JSON.parse(tags);
             }
-            
+
             // Handle SEO data
             let seo = req.body.seo || blog.seo;
             if (typeof seo === 'string') {
                 seo = JSON.parse(seo);
             }
-            
+
             // Generate slug if not provided
             let slug = req.body.slug || seo.slug || blog.slug;
             if (!slug && title.en) {
                 slug = generateSlug(title.en);
             }
-            
+
             // Ensure SEO object has proper structure
             const seoData = {
                 metaTitle: parseJsonField(seo.metaTitle),
@@ -336,7 +336,7 @@ const blogController = {
                 format: req.body.format || blog.format || 'standard',
                 seo: seoData
             });
-            
+
             res.status(200).json(ensureBlogDataStructure(blog));
         } catch (error) {
             console.error('Update blog error:', error);

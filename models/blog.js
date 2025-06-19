@@ -37,7 +37,6 @@ Blog.init({
     categories: {
         type: DataTypes.JSON, // Array of category IDs
         allowNull: true,
-        defaultValue: [],
     },
     tags: {
         type: DataTypes.JSON, // Array of tag strings
