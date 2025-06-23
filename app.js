@@ -59,6 +59,7 @@ app.use('/api', require('./routes/referenceRoutes.js'));
 app.use('/api', require('./services/webhook.js'));
 app.use('/api', require('./routes/contactRoutes.js'))
 app.use('/api', require('./routes/blogRoutes.js'))
+app.use('/api', require('./routes/categoryRoutes.js'))
 // app.use('/api',require('./routes/giftCardRoutes.js'))
 app.use('/api', require('./routes/BankRoutes.js'))
 app.use('/api', require('./services/zoho_webhook.js'))

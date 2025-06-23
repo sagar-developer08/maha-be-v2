@@ -12,6 +12,7 @@ const Commission = require('./commission');
 const Withdrawal = require('./withdrawal');
 const ApiLog = require('./ApiLog');
 const Blog = require('./blog'); // Import Blog model
+const Category = require('./category'); // Import Category model
 // Add all models to an object
 const models = {
   Tour,
@@ -26,6 +27,7 @@ const models = {
   Passenger,
   ApiLog, // Add other models here if needed
   Blog, // Register the Blog model
+  Category, // Register the Category model
 };
 
 // Call the associations after models are loaded

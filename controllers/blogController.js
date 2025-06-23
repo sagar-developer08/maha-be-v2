@@ -51,7 +51,7 @@ function generateSlug(title) {
 function ensureBlogDataStructure(blog) {
     return {
         ...blog.toJSON(),
-        categories: blog.categories || "",
+        categories: blog.categories || { en: '', ar: '' },
         tags: blog.tags || "",
         status: blog.status || 'draft',
         featured: blog.featured || false,
