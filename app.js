@@ -1,4 +1,3 @@
-
 const express = require('express');
 const sequelize = require('./environment/databaseConfig.js');
 const cors = require('cors');
@@ -7,9 +6,24 @@ const db = require('./models'); // Import models (from models/index.js)
 const { ApiLog } = require('./models');  // Add this after importing db
 
 // const { Tour, Itinerary } = require('./models/packages');
+
+// Configure CORS with specific options
+const corsOptions = {
+  origin: [
+    'https://crm.mahaballoonadventures.ae',
+    'https://mahaballoonadventures.ae',
+    'www.mahaballoonadventures.ae',
+    'http://localhost:3000',
+    'http://localhost:3001',
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+};
+
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
-app.use(cors());
 
 // 
 // Tour.associate({ Itinerary });
